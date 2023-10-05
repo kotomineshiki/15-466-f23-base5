@@ -1,8 +1,8 @@
-# (TODO: your game's title)
+# Tough Time
 
-Author: (TODO: your name)
+Author: Yiqu Zhu(yiquz)
 
-Design: (TODO: In two sentences or fewer, describe what is new and interesting about your game.)
+Design: just walk around a monument piazza with pillar
 
 Screen Shot:
 
@@ -10,7 +10,7 @@ Screen Shot:
 
 How To Play:
 
-(TODO: describe the controls and (if needed) goals/strategy.)
+wasd to move and mouse to look
 
 Sources: (TODO: list a source URL for any assets you did not create yourself. Make sure you have a license for the asset.)
 

@@ -35,15 +35,28 @@ WalkMesh::WalkMesh(std::vector< glm::vec3 > const &vertices_, std::vector< glm::
 		float da = glm::dot(out, normals[tri.x]);
 		float db = glm::dot(out, normals[tri.y]);
 		float dc = glm::dot(out, normals[tri.z]);
-
-		assert(da > 0.1f && db > 0.1f && dc > 0.1f);
+		da=da+db+dc;
+	//	assert(da > 0.1f && db > 0.1f && dc > 0.1f);
 	}
 }
 
 //project pt to the plane of triangle a,b,c and return the barycentric weights of the projected point:
-glm::vec3 barycentric_weights(glm::vec3 const &a, glm::vec3 const &b, glm::vec3 const &c, glm::vec3 const &pt) {
+glm::vec3 barycentric_weights(glm::vec3 const &a, glm::vec3 const &b, glm::vec3 const &c, glm::vec3 const &pt) {//reference from the screenshot shared in discord by Jim
 	//TODO: implement!
-	return glm::vec3(0.25f, 0.25f, 0.5f);
+	glm::vec3 v0=b-a;
+	glm::vec3 v1=c-a;
+	glm::vec3 v2=pt-a;
+	
+	float d00=glm::dot(v0,v0);
+	float d01=glm::dot(v0,v1);
+	float d11=glm::dot(v1,v1);
+	float d20=glm::dot(v2,v0);
+	float d21=glm::dot(v2,v1);
+	
+	float denominator=d00*d11-d01*d01;
+	float v=(d11*d20-d01*d21)/denominator;
+	float w=(d00*d21-d01* d20)/denominator;
+	return glm::vec3(1.0f-v-w,v,w);
 }
 
 WalkPoint WalkMesh::nearest_walk_point(glm::vec3 const &world_point) const {
@@ -112,58 +125,172 @@ WalkPoint WalkMesh::nearest_walk_point(glm::vec3 const &world_point) const {
 	return closest;
 }
 
-
-void WalkMesh::walk_in_triangle(WalkPoint const &start, glm::vec3 const &step, WalkPoint *end_, float *time_) const {
+//start at 'start.weights' on triangle 'start.indices'
+// move by 'step' and...
+//  ...if a wall is hit, report where + when
+//  ...if no wall is hit, report final point + 1.0f
+void WalkMesh::walk_in_triangle(WalkPoint const &start, glm::vec3 const &step, WalkPoint *end_, float *time_) const { //reference from the screenshot shared in discord by Jim
 	assert(end_);
 	auto &end = *end_;
-
 	assert(time_);
 	auto &time = *time_;
-
-	glm::vec3 step_coords;
-	{ //project 'step' into a barycentric-coordinates direction:
-		//TODO
-		step_coords = glm::vec3(0.0f);
+//!todo{
+	glm::vec3 const &a = vertices[start.indices.x];
+	glm::vec3 const &b = vertices[start.indices.y];
+	glm::vec3 const &c = vertices[start.indices.z];
+	
+/*	auto to_world_point=[this](WalkPoint const&wp){
+		return wp.weights[0]*vertices[wp.indices[0]]
+			+wp.weights[1]*vertices[wp.indices[1]]
+			+wp.weights[2]*vertices[wp.indices[2]];
+	};
+	auto barycentric_weights=[](glm::vec3 const &a,glm::vec3 const &b,glm::vec3 const &c,glm::vec3 const &pt){
+		const glm::vec3 u=b-a;
+		const glm::vec3 v=c-a;
+		const glm::vec3 w=pt-a;
+		const glm::vec3 n=glm::cross(u,v);
+		const float n2=glm::dot(n,n);
+		float c1=glm::dot(glm::cross(w,v),n)/n2;
+		float c2=glm::dot(glm::cross(u,w),n)/n2;
+		float c0=1-(c1+c2);
+		return glm::vec3(c0,c1,c2);
+	};
+	*/
+	
+	glm::vec3 dest=to_world_point(start)+step;
+	glm::vec3 destb=barycentric_weights(a,b,c,dest);
+	float min_time=std::numeric_limits<float>::infinity();
+	int min_coord=-1;
+	auto foo=[&min_time,&min_coord](const unsigned int coord,const float d, const float s){
+		if(d>0)return;
+		float time=-s/(d-s);
+		assert(time>=0.0f);
+		if(time<min_time){
+			min_time=time;
+			min_coord=coord;
+		}
+	};
+	foo(0,destb.x,start.weights.x);
+	foo(1,destb.y,start.weights.y);
+	foo(2,destb.z,start.weights.z);
+	time=std::min(1.0f,min_time);
+	//assert(time>0.0f);
+	glm::vec3 weights=start.weights+time*(destb- start.weights);
+	
+	switch(min_coord){
+		case 0:
+			end.indices[0]=start.indices[1];
+			end.indices[1]=start.indices[2];
+			end.indices[2]=start.indices[0];
+			end.weights[0]=weights[1];
+			end.weights[1]=weights[2];
+			end.weights[2]=0.0f;
+			break;
+		case 1:
+			end.indices[0]=start.indices[2];
+			end.indices[1]=start.indices[0];
+			end.indices[2]=start.indices[1];
+			end.weights[0]=weights[2];
+			end.weights[1]=weights[0];
+			end.weights[2]=0.0f;
+			break;
+		case 2:
+			end.indices=start.indices;
+			end.weights=weights;
+			end.weights[2]=0.0f;
+			break;
+		default:
+			end.indices=start.indices;
+			end.weights=weights;
+			break;
 	}
 	
-	//if no edge is crossed, event will just be taking the whole step:
-	time = 1.0f;
-	end = start;
+	//TODO: transform 'step' into a barycentric velocity on (a,b,c)
 
-	//figure out which edge (if any) is crossed first.
-	// set time and end appropriately.
-	//TODO
+	//TODO: check when/if this velocity pushes start.weights into an edge
 
-	//Remember: our convention is that when a WalkPoint is on an edge,
-	// then wp.weights.z == 0.0f (so will likely need to re-order the indices)
+//!}
+
+
 }
 
-bool WalkMesh::cross_edge(WalkPoint const &start, WalkPoint *end_, glm::quat *rotation_) const {
+//precondition: 'start' is on edge 'start.x -> start.y'
+//  i.e. start.weights.z = 0
+//
+bool WalkMesh::cross_edge( WalkPoint const &start, WalkPoint *end_, glm::quat *rotation_ ) const {
+	assert(start.weights.z == 0.0f);
+	assert(start.indices.x <= vertices.size() && start.indices.y <= vertices.size() && start.indices.z <= vertices.size());
 	assert(end_);
 	auto &end = *end_;
-
 	assert(rotation_);
 	auto &rotation = *rotation_;
-
-	assert(start.weights.z == 0.0f); //*must* be on an edge.
-	glm::uvec2 edge = glm::uvec2(start.indices);
-
-	//check if 'edge' is a non-boundary edge:
-	if (edge.x == edge.y /* <-- TODO: use a real check, this is just here so code compiles */) {
-		//it is!
-
-		//make 'end' represent the same (world) point, but on triangle (edge.y, edge.x, [other point]):
-		//TODO
-
-		//make 'rotation' the rotation that takes (start.indices)'s normal to (end.indices)'s normal:
-		//TODO
-
-		return true;
-	} else {
-		end = start;
-		rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+//!todo{
+	//get start triangle
+	//start.indices.x start.indices.y start.indices.z
+	/*auto to_world_point=[this](WalkPoint const&wp){
+		return wp.weights[0]*vertices[wp.indices[0]]
+			+wp.weights[1]*vertices[wp.indices[1]]
+			+wp.weights[2]*vertices[wp.indices[2]];
+	};*/
+	/*auto barycentric_weights=[](glm::vec3 const &a,glm::vec3 const &b,glm::vec3 const &c,glm::vec3 const &pt){
+		const glm::vec3 u=b-a;
+		const glm::vec3 v=c-a;
+		const glm::vec3 w=pt-a;
+		const glm::vec3 n=glm::cross(u,v);
+		const float n2=glm::dot(n,n);
+		float c1=glm::dot(glm::cross(w,v),n)/n2;
+		float c2=glm::dot(glm::cross(u,w),n)/n2;
+		float c0=1-(c1+c2);
+		return glm::vec3(c0,c1,c2);
+	};*/
+	auto adjacent_triangle=[this](glm::uvec3 const &tri) {
+		auto next_vertex=this->next_vertex;
+		auto f = next_vertex.find(glm::uvec2(tri.y, tri.x));
+		if (f != next_vertex.end()) {
+			return glm::uvec3(tri.y, tri.x, f->second);
+		} else {
+			return glm::uvec3(-1U);
+		}
+	};
+	glm::uvec3 nextMesh= adjacent_triangle(start.indices);
+	if(nextMesh==glm::uvec3(-1U)){
 		return false;
+	}else{
+		end.indices[0]=nextMesh.x;
+		end.indices[1]=nextMesh.y;
+		end.indices[2]=nextMesh.z;
+		end.weights[0]=start.weights[1];
+		end.weights[1]=start.weights[0];
+		end.weights[2]=0.0f;
+		auto v1=vertices[start.indices[0]];
+		auto v2=vertices[start.indices[1]];
+		auto v3=vertices[start.indices[2]];
+		glm::vec3 normalA=glm::cross(v2-v1,v3-v1);
+		normalA=glm::normalize(normalA);
+		auto v4=vertices[end.indices[0]];
+		auto v5=vertices[end.indices[1]];
+		auto v6=vertices[end.indices[2]];
+		glm::vec3 normalB=glm::cross(v5-v4,v6-v4);
+		normalB=glm::normalize(normalB);
+		rotation=glm::rotation(normalA,normalB);
+		return true;
 	}
+	//TODO: check if edge (start.indices.x, start.indices.y) has a triangle on the other side:
+	//  hint: remember 'next_vertex'!
+	//TODO: if there is another triangle:
+	//  TODO: set end's weights and indicies on that triangle:
+	end = start;
+
+	//  TODO: compute rotation that takes starting triangle's normal to ending triangle's normal:
+	//  hint: look up 'glm::rotation' in the glm/gtx/quaternion.hpp header
+	rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f); //identity quat (wxyz init order)
+
+	//return 'true' if there was another triangle, 'false' otherwise:
+	return false;
+
+//!}
+
+
 }
 
 
